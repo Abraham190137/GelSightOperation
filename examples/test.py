@@ -1,8 +1,8 @@
 import time
 import cv2
-from robomail.gelsight import GelsightDataCollector
+from gelsight import GelsightDataCollector
 import numpy as np
-from robomail.gelsight import StrainInterpolation
+from gelsight import StrainInterpolation
 import pickle
 # from gsdevice_threaded import get_camera_ide
 

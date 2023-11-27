@@ -1,0 +1,16 @@
+README.md
+setup.py
+gelsight/GelsightDataCollector.py
+gelsight/__init__.py
+gelsight/abe_create_strain_images.py
+gelsight/gs3drecon.py
+gelsight/gsdevice_threaded.py
+gelsight/marker_detection.py
+gelsight/setting.py
+gelsight/test_code.py
+gelsight/tracking.py
+gelsight.egg-info/PKG-INFO
+gelsight.egg-info/SOURCES.txt
+gelsight.egg-info/dependency_links.txt
+gelsight.egg-info/requires.txt
+gelsight.egg-info/top_level.txt
