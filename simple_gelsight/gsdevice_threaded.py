@@ -68,7 +68,7 @@ class Camera:
         self.record = True
         while self.record:
             ret, frame = self.cam.read()
-            print('got frame!')
+            # print('got frame!')
             if ret:
                 new_image = resize_crop_mini(frame, self.imgw, self.imgh)
             else:

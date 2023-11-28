@@ -1,27 +1,25 @@
 import time
 import cv2
-from gelsight import GelsightDataCollector
+from simple_gelsight import GelsightDataCollector
 import numpy as np
-from gelsight import StrainInterpolation
+from simple_gelsight import StrainInterpolation
 import pickle
 # from gsdevice_threaded import get_camera_ide
 
 
 device_number = 0
 Gelsight = GelsightDataCollector(device_number)
-Interpolator = StrainInterpolation(240, 320, 9, 7)
 
 
 for i in range(10000):
     print(i)
     # last_time = time.time()
-    frame, depth_image, frame_data = Gelsight.collect_frame_data() 
+    frame, marker_data, depth_image, x_inter, y_inter = Gelsight.get_frame()
     # print(frame_data)
     cv2.imshow('frame', frame)
     cv2.imshow('depth', depth_image/depth_image.max())
     print('max depth', depth_image.max())
     print('min depth', depth_image.min())
-    x_inter, y_inter = Interpolator(frame_data) #create_strain_images(frame_data)
     cv2.imshow('x_inter', x_inter/20 + 0.5)
     cv2.imshow('y_inter', y_inter/20 + 0.5)
 

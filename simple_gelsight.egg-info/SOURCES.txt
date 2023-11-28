@@ -1,10 +1,5 @@
 README.md
 setup.py
-gelsight.egg-info/PKG-INFO
-gelsight.egg-info/SOURCES.txt
-gelsight.egg-info/dependency_links.txt
-gelsight.egg-info/requires.txt
-gelsight.egg-info/top_level.txt
 simple_gelsight/GelsightDataCollector.py
 simple_gelsight/__init__.py
 simple_gelsight/abe_create_strain_images.py
@@ -14,3 +9,8 @@ simple_gelsight/marker_detection.py
 simple_gelsight/setting.py
 simple_gelsight/test_code.py
 simple_gelsight/tracking.py
+simple_gelsight.egg-info/PKG-INFO
+simple_gelsight.egg-info/SOURCES.txt
+simple_gelsight.egg-info/dependency_links.txt
+simple_gelsight.egg-info/requires.txt
+simple_gelsight.egg-info/top_level.txt

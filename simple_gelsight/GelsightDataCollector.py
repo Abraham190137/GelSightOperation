@@ -7,13 +7,17 @@ from .gsdevice_threaded import Camera
 from .gs3drecon import Reconstruction3D
 # import rospy
 import os
+from .strain_interpolation import StrainInterpolation
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
-class GelsightDataCollector:
+class Gelsight:
     def __init__(self, camera_device_number, use_gpu=True):
         # Initialize threaded camera
         self.dev = Camera(camera_device_number)
+        self.height = self.dev.imgh
+        self.width = self.dev.imgw
+        self.interpolation = StrainInterpolation(self.height, self.width, 9, 7)
 
         # Initialize marker detection settings
         setting.init()
@@ -72,7 +76,7 @@ class GelsightDataCollector:
         self.marker_finder = find_marker.Matching(N_,M_,fps_,x0_,y0_,dx_,dy_)
 
 
-    def collect_frame_data(self):
+    def get_frame(self):
 
         frame = self.dev.get_next_image()
 
@@ -115,8 +119,9 @@ class GelsightDataCollector:
                 frame_data = np.concatenate([frame_data, append_data], axis = 0)
         
         frame_data = frame_data.reshape((len(frame_data)//6, 6))
+        strain_x, strain_y = self.interpolation(frame_data)
 
-        return frame, depthmap, frame_data
+        return frame, frame_data, depthmap, strain_x, strain_y
         
      
     def clean_up(self):

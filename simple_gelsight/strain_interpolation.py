@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict
 import matplotlib.pyplot as plt
 
 class StrainInterpolation:
-    def __init__(self, image_hight, image_width, num_marker_columns, num_marker_rows):
+    def __init__(self, image_hight=240, image_width=320, num_marker_rows=7, num_marker_columns=9):
         """
         Class to perform the inpolation of the strain data
         :param image_hight: hight of the image in pixel
@@ -123,7 +123,7 @@ class StrainInterpolation:
         """
         Interpolate the strain data
         :param frame_data: data of the markers in the image
-        :return: interpolated strain data
+        :return: strain_x, strain_y - interpolated
         """
 
 
