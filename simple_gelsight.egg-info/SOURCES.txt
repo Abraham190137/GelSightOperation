@@ -2,12 +2,12 @@ README.md
 setup.py
 simple_gelsight/GelsightDataCollector.py
 simple_gelsight/__init__.py
-simple_gelsight/abe_create_strain_images.py
+simple_gelsight/get_camera_id.py
 simple_gelsight/gs3drecon.py
 simple_gelsight/gsdevice_threaded.py
 simple_gelsight/marker_detection.py
 simple_gelsight/setting.py
-simple_gelsight/test_code.py
+simple_gelsight/strain_interpolation.py
 simple_gelsight/tracking.py
 simple_gelsight.egg-info/PKG-INFO
 simple_gelsight.egg-info/SOURCES.txt

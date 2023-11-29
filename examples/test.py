@@ -1,6 +1,6 @@
 import time
 import cv2
-from simple_gelsight import GelsightDataCollector
+from simple_gelsight import Gelsight
 import numpy as np
 from simple_gelsight import StrainInterpolation
 import pickle
@@ -8,7 +8,7 @@ import pickle
 
 
 device_number = 0
-Gelsight = GelsightDataCollector(device_number)
+Gelsight = Gelsight(device_number)
 
 
 for i in range(10000):

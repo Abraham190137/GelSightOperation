@@ -2,7 +2,12 @@ import os
 import re
 import cv2
 
-def get_camera_id(camera_name):
+def get_camera_id(camera_name) -> int:
+    """
+    Get the camera id for a camera with a given name.
+    :param camera_name: The name of the camera to find. (e.g. "GelSight")
+    :return: The camera id.
+    """
     cam_num = None
     if os.name == 'nt':
         cam_num = find_cameras_windows(camera_name)
@@ -24,8 +29,14 @@ def get_camera_id(camera_name):
 
     return cam_num
 
+# This is from the gelsight libary. I haven't tested it yet.
 if os.name == 'nt':
-    def find_cameras_windows(camera_name):
+    def find_cameras_windows(camera_name) -> int:
+        """
+        Helper function to find the camera id on Windows.
+        :param camera_name: The name of the camera to find. (e.g. "GelSight")
+        :return: The camera id.
+        """
 
         from pygrabber.dshow_graph import FilterGraph
         graph = FilterGraph()
