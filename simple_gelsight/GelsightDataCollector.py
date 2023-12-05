@@ -1,5 +1,6 @@
 import cv2
 from . import find_marker, setting, marker_detection
+import time
 
 import numpy as np
 import os
@@ -30,7 +31,7 @@ class Gelsight:
         self.mc = marker_detection.marker_center(mask, frame)
 
         #Depth Map initializatioin
-        self.MASK_MARKERS_FLAG = True
+        self.MASK_MARKERS_FLAG = False#True
 
         # Set up neural network for depth map
         net_path = os.path.join(PATH, './nnmini.pt')
@@ -79,8 +80,9 @@ class Gelsight:
     def get_frame(self):
 
         frame = self.dev.get_next_image()
-
+        # last_time = time.time()
         depthmap = self.nn.get_depthmap(frame, self.MASK_MARKERS_FLAG)
+        # print('depthmap time', time.time() - last_time)
         
 
         ''' EXTRINSIC calibration ... 
@@ -119,7 +121,9 @@ class Gelsight:
                 frame_data = np.concatenate([frame_data, append_data], axis = 0)
         
         frame_data = frame_data.reshape((len(frame_data)//6, 6))
+        # last_time = time.time()
         strain_x, strain_y = self.interpolation(frame_data)
+        # print('interpolation time', time.time() - last_time)
 
         return frame, frame_data, depthmap, strain_x, strain_y
         

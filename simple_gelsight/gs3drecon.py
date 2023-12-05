@@ -8,6 +8,7 @@ import os
 import cv2
 from scipy.interpolate import griddata
 from scipy import fftpack
+import time
 
 
 def find_marker(gray):
@@ -226,8 +227,9 @@ class Reconstruction3D:
         if cpuorgpu=="cuda":
             ### load weights on gpu
             # net.load_state_dict(torch.load(net_path))
-            checkpoint = torch.load(net_path, map_location=lambda storage, loc: storage.cuda(0))
+            checkpoint = torch.load(net_path, map_location=lambda storage, loc: storage.cuda())
             net.load_state_dict(checkpoint['state_dict'])
+            print('using gpu!')
         else:
             ### load weights on cpu which were actually trained on gpu
             checkpoint = torch.load(net_path, map_location=lambda storage, loc: storage)
@@ -252,7 +254,9 @@ class Reconstruction3D:
 
         if MARKER_INTERPOLATE_FLAG:
             ''' find marker mask '''
+            # find_marker_start_time = time.time()
             markermask = find_marker(cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY))
+            # print('find_marker time: ', time.time() - find_marker_start_time)
             cm = ~markermask
             '''intersection of cm and markermask '''
             # cmmm = np.zeros(img.shape[:2])
@@ -283,8 +287,10 @@ class Reconstruction3D:
         features = np.column_stack((rgb, pxpos))
         features = torch.from_numpy(features).float().to(self.cpuorgpu)
         with torch.no_grad():
+            # last_time = time.time()
             self.net.eval()
             out = self.net(features)
+            # print('eval time: ', time.time() - last_time)
 
         nx[np.where(cm)] = out[:, 0].cpu().detach().numpy()
         ny[np.where(cm)] = out[:, 1].cpu().detach().numpy()
@@ -307,18 +313,22 @@ class Reconstruction3D:
         gx = -nx / nz
         gy = -ny / nz
 
+        # dialte_demark_start_time = time.time()
         if MARKER_INTERPOLATE_FLAG:
             # gx, gy = interpolate_gradients(gx, gy, img, cm, cmmm)
             dilated_mm = dilate(markermask, ksize=3, iter=2)
             gx_interp, gy_interp = demark(gx, gy, dilated_mm)
         else:
             gx_interp, gy_interp = gx, gy
+        # print('dialte_demark time: ', time.time() - dialte_demark_start_time)
 
         # nz = np.sqrt(1 - nx ** 2 - ny ** 2)
         boundary = np.zeros((imgh, imgw))
 
+        # possin_start_time = time.time()
         dm = poisson_dct_neumaan(gx_interp, gy_interp)
         dm = np.reshape(dm, (imgh, imgw))
+        # print('possin time: ', time.time() - possin_start_time)
         #print(dm.shape)
         # cv2.imshow('dm',dm)
 
