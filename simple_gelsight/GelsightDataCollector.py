@@ -31,7 +31,7 @@ class Gelsight:
         self.mc = marker_detection.marker_center(mask, frame)
 
         #Depth Map initializatioin
-        self.MASK_MARKERS_FLAG = False#True
+        self.MASK_MARKERS_FLAG = True
 
         # Set up neural network for depth map
         net_path = os.path.join(PATH, './nnmini.pt')
