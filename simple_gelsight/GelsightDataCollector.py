@@ -1,30 +1,50 @@
 import cv2
 from . import find_marker, setting, marker_detection
-import time
 
 import numpy as np
 import os
-from .gsdevice_threaded import Camera
 from .gs3drecon import Reconstruction3D
 # import rospy
 import os
 from .strain_interpolation import StrainInterpolation
+import warnings
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
+def resize_crop_mini(img, imgw, imgh):
+    # remove 1/7th of border from each size
+    border_size_x, border_size_y = int(img.shape[0] * (1 / 7)), int(np.floor(img.shape[1] * (1 / 7)))
+    # keep the ratio the same as the original image size
+    img = img[border_size_x+2:img.shape[0] - border_size_x, border_size_y:img.shape[1] - border_size_y]
+    # final resize for 3d
+    return cv2.resize(img, (imgw, imgh))
+
 class Gelsight:
-    def __init__(self, camera_device_number, use_gpu=True):
-        # Initialize threaded camera
-        self.dev = Camera(camera_device_number)
-        self.height = self.dev.imgh
-        self.width = self.dev.imgw
+    # hardcoded values for the mini gelsight
+    height = 240
+    width = 320
+    millimeters_per_pixel = 0.0634 # mini gel 18x24mm at 240x320
+
+    def __init__(self, device_number, use_gpu=True, flush_frames=50):
+        # Initialize camera
+        self.cam = cv2.VideoCapture(device_number)
+        if self.cam is None or not self.cam.isOpened():
+            warnings.warn('Warning: unable to open video source: ' + str(self.dev_id))
+            return False
+
+        # flush out first few frames
+        for i in range(flush_frames):
+            print('flushing frame', i)
+            self.cam.read()
+
         self.interpolation = StrainInterpolation(self.height, self.width, 9, 7)
 
         # Initialize marker detection settings
         setting.init()
 
         # Get a frame from the camera
-        frame = self.dev.get_image()
+        frame = self.get_image()
+
         ### find marker masks
         mask = marker_detection.find_marker(frame)
         ### find marker centers
@@ -42,13 +62,13 @@ class Gelsight:
             gpuorcpu = 'cpu'
 
         # Initialize neural network
-        self.nn = Reconstruction3D(self.dev)
+        self.nn = Reconstruction3D(self.height, self.width)
         self.nn.load_nn(net_path, gpuorcpu)
 
         # Initialize depth map by running the neural network on the first 50 frames
         for i in range(50):
             print('initializing depth map', i)
-            frame = self.dev.get_next_image()
+            frame = self.get_image()
             self.nn.get_depthmap(frame, self.MASK_MARKERS_FLAG)
 
         mc = self.mc
@@ -76,10 +96,17 @@ class Gelsight:
 
         self.marker_finder = find_marker.Matching(N_,M_,fps_,x0_,y0_,dx_,dy_)
 
+    def get_image(self):
+        ret, raw_frame = self.cam.read()
+        if ret:
+            frame = resize_crop_mini(raw_frame, self.width, self.height)
+        else:
+            warnings.warn('ERROR! reading image from camera!')
+        return frame
 
     def get_frame(self):
 
-        frame = self.dev.get_next_image()
+        frame = self.get_image()
         # last_time = time.time()
         depthmap = self.nn.get_depthmap(frame, self.MASK_MARKERS_FLAG)
         # print('depthmap time', time.time() - last_time)
@@ -126,10 +153,100 @@ class Gelsight:
         # print('interpolation time', time.time() - last_time)
 
         return frame, frame_data, depthmap, strain_x, strain_y
-        
-     
-    def clean_up(self):
-        self.dev.close()
 
+import multiprocessing
+import ctypes
+
+class GelSightMultiprocessed:
+    def __init__(self, device_number, use_gpu=True, flush_frames=50):
+        self.device_number = device_number
+        self.use_gpu = use_gpu
+        self.flush_frames = flush_frames
+
+        H = Gelsight.height
+        W = Gelsight.width
+
+        self.size = (H, W)
+        self.last_frame_num = 0
+
+        self.image_array = multiprocessing.Array(ctypes.c_uint8, H*W*3, lock=True)
+        self.data_array = multiprocessing.Array(ctypes.c_float, H*W*3 + 7*7*9, lock=True)
+
+        self.info_queue = multiprocessing.Queue()
+
+        self.process = multiprocessing.Process(target=self._run, 
+                                              args=(self.image_array, 
+                                                    self.data_array, 
+                                                    device_number, 
+                                                    use_gpu, 
+                                                    flush_frames, 
+                                                    self.info_queue,
+                                                    H, W))
+
+    @staticmethod
+    def _run(image_array, 
+             data_array, 
+             device_number, 
+             use_gpu, 
+             flush_frames, 
+             frame_num_queue,
+             H, W):
+        
+        image_np = np.frombuffer(image_array.get_obj(), dtype=np.uint8)
+        data_np = np.frombuffer(data_array.get_obj(), dtype=np.float32)
+        
+        gelsight = Gelsight(device_number, use_gpu, flush_frames)
+
+        frame_num = 0
+        while True:
+            frame, frame_data, depthmap, strain_x, strain_y = gelsight.get_frame()
+            with image_array.get_lock():
+                image_np[:] = frame.flatten()
+            with data_array.get_lock():
+                data_np[:H*W] = depthmap.flatten()
+                data_np[H*W:H*W*2] = strain_x.flatten()
+                data_np[H*W*2:H*W*3] = strain_y.flatten()
+                data_np[H*W*3:] = frame_data.flatten()
+            
+            frame_num_queue.put(frame_num)
+            frame_num += 1
+
+    def get_frame(self, wait=False):
+        # unpack the arrays
+        H, W = self.size
+        with self.image_array.get_lock():
+            frame = np.frombuffer(self.image_array.get_obj(), dtype=np.uint8).reshape((H, W, 3)).copy()
+        with self.data_array.get_lock():
+            data_np = np.frombuffer(self.data_array.get_obj(), dtype=np.float32)
+            depthmap = data_np[:H*W].reshape((H, W)).copy()
+            strain_x = data_np[H*W:H*W*2].reshape((H, W)).copy()
+            strain_y = data_np[H*W*2:H*W*3].reshape((H, W)).copy()
+            frame_data = data_np[H*W*3:].reshape((7, 7, 9)).copy()
+        
+        return frame, frame_data, depthmap, strain_x, strain_y
+    
+    def get_next_frame(self):
+        frame_num = self.info_queue.get() # wait for the next frame to be ready
+        # clear the queue
+        while True:
+            try:
+                self.info_queue.get_nowait()
+            except:
+                break
+        if frame_num != self.last_frame_num + 1:
+            print('GelSightMultiprocessed: missed frames!', frame_num, self.last_frame_num)
+        self.last_frame_num = self.last_frame_num
+        return self.get_frame()
+    
+    def close(self):
+        self.process.terminate()
+        self.process.join()
+
+    def __del__(self):
+        self.close()
+
+        
+
+        
 
 
