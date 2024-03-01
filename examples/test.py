@@ -1,6 +1,6 @@
 import time
 import cv2
-from simple_gelsight import Gelsight, get_camera_id
+from simple_gelsight import Gelsight, get_camera_id, GelSightMultiprocessed
 import numpy as np
 from simple_gelsight import StrainInterpolation
 import pickle
@@ -8,13 +8,13 @@ import pickle
 
 
 device_number = get_camera_id('GelSight')
-MyGelsight = Gelsight(device_number)
+MyGelsight = GelSightMultiprocessed(device_number)
 
 
 for i in range(10000):
     print(i)
     # last_time = time.time()
-    frame, marker_data, depth_image, x_inter, y_inter = MyGelsight.get_frame()
+    frame, marker_data, depth_image, x_inter, y_inter = MyGelsight.get_next_frame()
     # print(frame_data)
     cv2.imshow('frame', frame)
     cv2.imshow('depth', depth_image/depth_image.max())

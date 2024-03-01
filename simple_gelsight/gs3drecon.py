@@ -10,11 +10,47 @@ from scipy.interpolate import griddata
 from scipy import fftpack
 import time
 
+from matplotlib import pyplot as plt
+
 
 def find_marker(gray):
-    mask = cv2.inRange(gray, 0, 70)
-    # kernel = np.ones((2, 2), np.uint8)
-    # dilation = cv2.dilate(mask, kernel, iterations=1)
+    # plt.figure()
+    # plt.imshow(gray)
+    # plt.title('gray')
+    # perform a smooth to reduce noise
+    # start_time = time.time()
+    # gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    # print('GaussianBlur time: ', time.time() - start_time)
+
+    # plt.figure()
+    # plt.imshow(gray)
+    # plt.title('gray after GaussianBlur')
+    
+    # quick and dirty mean thresholding
+    start_time = time.time()
+    mean = cv2.resize(gray, (320//20, 240//20))
+    mean = cv2.GaussianBlur(mean, (3, 3), 0)
+    mean = cv2.resize(mean, (320, 240))
+    mask = (gray/mean < 0.65).astype(np.uint8) * 255
+    print('threshold: ', time.time() - start_time)
+
+    # plt.figure()
+    # plt.imshow(gray/mean)
+    # plt.title('gray/mean')
+    # plt.figure()
+    # plt.imshow(mean)
+    # plt.title('mean')
+    # plt.figure()
+    # plt.imshow(mask)
+    # plt.title('mask')
+    kernel = np.ones((3, 3), np.uint8)
+    start_time = time.time()
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1) 
+    print('morphologyEx time: ', time.time() - start_time)
+    # plt.figure()
+    # plt.imshow(mask)
+    # plt.title('mask after closing')
+    # plt.show()
     return mask
 
 def dilate(img, ksize=5, iter=1):
@@ -221,13 +257,16 @@ class Reconstruction3D:
             print('Error opening ', net_path, ' does not exist')
             return
 
-
+        print('start to deive')
         net = RGB2NormNet().float().to(device)
+        print('end to deive')
 
         if cpuorgpu=="cuda":
             ### load weights on gpu
             # net.load_state_dict(torch.load(net_path))
+            print('start weight load')
             checkpoint = torch.load(net_path, map_location=lambda storage, loc: storage.cuda())
+            print('end weight load')
             net.load_state_dict(checkpoint['state_dict'])
             print('using gpu!')
         else:
@@ -255,7 +294,8 @@ class Reconstruction3D:
         if MARKER_INTERPOLATE_FLAG:
             ''' find marker mask '''
             # find_marker_start_time = time.time()
-            markermask = find_marker(cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY))
+            # markermask = find_marker(cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY))
+            markermask = find_marker(np.max(frame, axis=2))
             # print('find_marker time: ', time.time() - find_marker_start_time)
             cm = ~markermask
             '''intersection of cm and markermask '''
@@ -342,6 +382,36 @@ class Reconstruction3D:
             print ('Ok to touch me now!')
         self.dm_zero_counter += 1
         dm = dm - self.dm_zero
+        if self.dm_zero_counter > 50:
+            plt.figure()
+            plt.imshow(frame)
+            plt.title('image')
+
+            plt.figure()
+            plt.imshow(markermask)
+            plt.title('markermask')
+
+            plt.figure()
+            plt.imshow(dm)
+            plt.title('depth map')
+
+            plt.figure()
+            plt.imshow(gx)
+            plt.title('gx')
+
+            plt.figure()
+            plt.imshow(gy)
+            plt.title('gy')
+
+            plt.figure()
+            plt.imshow(gx_interp)
+            plt.title('gx_interp')
+
+            plt.figure()
+            plt.imshow(gy_interp)
+            plt.title('gy_interp')
+            plt.show()
+
         # print(dm.min(), dm.max())
 
         ''' ENTIRE MASK. GPU OPTIMIZED VARIABLES. '''

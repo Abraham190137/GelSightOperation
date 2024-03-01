@@ -8,6 +8,8 @@ from .gs3drecon import Reconstruction3D
 import os
 from .strain_interpolation import StrainInterpolation
 import warnings
+import time
+import matplotlib.pyplot as plt
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
@@ -19,23 +21,108 @@ def resize_crop_mini(img, imgw, imgh):
     # final resize for 3d
     return cv2.resize(img, (imgw, imgh))
 
+class MultiProcessedCamera:
+    def __init__(self, device_number, flush_frames=0):
+        self.device_number = device_number
+        self.last_frame_num = 0
+
+        # open the camera to get the frame size
+        self.shape = np.array([240, 320, 3])
+
+        self.image_array = multiprocessing.Array(ctypes.c_uint8, int(self.shape[0]*self.shape[1]*self.shape[2]), lock=True)
+        self.frame_num_queue = multiprocessing.Queue()
+        self.process = multiprocessing.Process(target=self._run, args=(self.image_array, device_number, self.frame_num_queue, flush_frames))
+        self.process.start()
+        self.get_next_frame()
+        print('MultiProcessedCamera: started!')
+
+    @staticmethod
+    def _run(image_array, device_number, frame_num_queue, flush_frames):
+        image_array_np = np.ctypeslib.as_array(image_array.get_obj())
+        cam = cv2.VideoCapture(device_number)
+        if cam is None or not cam.isOpened():
+            warnings.warn('Warning: unable to open video source: ' + str(device_number))
+            return False
+        for i in range(flush_frames):
+            print('flushing frame', i)
+            cam.read()
+        frame_num = 0
+        while True:
+            ret, frame = cam.read()            
+            if ret:
+                frame = resize_crop_mini(frame, 320, 240)
+                with image_array.get_lock():
+                    image_array_np[:] = frame.ravel()
+                frame_num_queue.put(frame_num)
+                frame_num += 1
+    
+    def get_frame(self):
+        with self.image_array.get_lock():
+            image_array_np = np.ctypeslib.as_array(self.image_array.get_obj())
+            frame = image_array_np.copy().reshape(self.shape)
+        
+        return frame
+    
+    def get_next_frame(self):
+        frame_num = self.frame_num_queue.get() # wait for the next frame to be ready
+
+        # clear the queue so that next time we can wait for the next frame
+        while True:
+            try:
+                self.frame_num_queue.get_nowait()
+            except:
+                break
+
+        return self.get_frame()
+    
+    def close(self):
+        self.process.terminate()
+        self.process.join()
+
+    def __del__(self):
+        self.close()
+
+class Camera:
+    def __init__(self, device_number, flush_frames=0):
+        self.device_number = device_number
+        self.cam = cv2.VideoCapture(device_number)
+        if self.cam is None or not self.cam.isOpened():
+            warnings.warn('Warning: unable to open video source: ' + str(device_number))
+            return False
+        self.shape = np.array([240, 320, 3])
+        for i in range(flush_frames):
+            self.get_next_frame()
+        print('Camera: started!')
+
+    def get_frame(self):
+        ret, frame = self.cam.read()
+        if ret:
+            frame = resize_crop_mini(frame, 320, 240)
+        return frame
+    
+    def get_next_frame(self):
+        return self.get_frame()
+    
+    def close(self):
+        self.cam.release()
+
+    def __del__(self):
+        self.close()
+
+
 class Gelsight:
     # hardcoded values for the mini gelsight
     height = 240
     width = 320
     millimeters_per_pixel = 0.0634 # mini gel 18x24mm at 240x320
 
-    def __init__(self, device_number, use_gpu=True, flush_frames=50):
+    def __init__(self, device_number, use_gpu=True, flush_frames=50, multiprocessed_cam=False):
         # Initialize camera
-        self.cam = cv2.VideoCapture(device_number)
-        if self.cam is None or not self.cam.isOpened():
-            warnings.warn('Warning: unable to open video source: ' + str(self.dev_id))
-            return False
+        if multiprocessed_cam:
+            self.cam = MultiProcessedCamera(device_number, flush_frames)
+        else:
+            self.cam = Camera(device_number, flush_frames)
 
-        # flush out first few frames
-        for i in range(flush_frames):
-            print('flushing frame', i)
-            self.cam.read()
 
         self.interpolation = StrainInterpolation(self.height, self.width, 9, 7)
 
@@ -44,6 +131,7 @@ class Gelsight:
 
         # Get a frame from the camera
         frame = self.get_image()
+
 
         ### find marker masks
         mask = marker_detection.find_marker(frame)
@@ -97,16 +185,15 @@ class Gelsight:
         self.marker_finder = find_marker.Matching(N_,M_,fps_,x0_,y0_,dx_,dy_)
 
     def get_image(self):
-        ret, raw_frame = self.cam.read()
-        if ret:
-            frame = resize_crop_mini(raw_frame, self.width, self.height)
-        else:
-            warnings.warn('ERROR! reading image from camera!')
+        frame = self.cam.get_next_frame()
+        # frame = resize_crop_mini(frame, self.width, self.height)
         return frame
 
     def get_frame(self):
-
+        
+        # get_image_time = time.time()
         frame = self.get_image()
+        # print('get_image_time', time.time() - get_image_time)
         # last_time = time.time()
         depthmap = self.nn.get_depthmap(frame, self.MASK_MARKERS_FLAG)
         # print('depthmap time', time.time() - last_time)
@@ -153,6 +240,15 @@ class Gelsight:
         # print('interpolation time', time.time() - last_time)
 
         return frame, frame_data, depthmap, strain_x, strain_y
+    
+    def get_next_frame(self):
+        return self.get_frame()
+    
+    def close(self):
+        self.cam.close()
+
+    def __del__(self):
+        self.close()
 
 import multiprocessing
 import ctypes
@@ -165,12 +261,14 @@ class GelSightMultiprocessed:
 
         H = Gelsight.height
         W = Gelsight.width
+        self.height = H
+        self.width = W
 
         self.size = (H, W)
         self.last_frame_num = 0
 
         self.image_array = multiprocessing.Array(ctypes.c_uint8, H*W*3, lock=True)
-        self.data_array = multiprocessing.Array(ctypes.c_float, H*W*3 + 7*7*9, lock=True)
+        self.data_array = multiprocessing.Array(ctypes.c_float, H*W*3 + 7*9*6, lock=True)
 
         self.info_queue = multiprocessing.Queue()
 
@@ -182,6 +280,9 @@ class GelSightMultiprocessed:
                                                     flush_frames, 
                                                     self.info_queue,
                                                     H, W))
+        self.process.start()
+        self.get_next_frame() # wait for the first frame to be ready
+        print('GelSightMultiprocessed: started!')
 
     @staticmethod
     def _run(image_array, 
@@ -195,7 +296,7 @@ class GelSightMultiprocessed:
         image_np = np.frombuffer(image_array.get_obj(), dtype=np.uint8)
         data_np = np.frombuffer(data_array.get_obj(), dtype=np.float32)
         
-        gelsight = Gelsight(device_number, use_gpu, flush_frames)
+        gelsight = Gelsight(device_number, use_gpu, flush_frames, multiprocessed_cam=True)
 
         frame_num = 0
         while True:
@@ -221,7 +322,7 @@ class GelSightMultiprocessed:
             depthmap = data_np[:H*W].reshape((H, W)).copy()
             strain_x = data_np[H*W:H*W*2].reshape((H, W)).copy()
             strain_y = data_np[H*W*2:H*W*3].reshape((H, W)).copy()
-            frame_data = data_np[H*W*3:].reshape((7, 7, 9)).copy()
+            frame_data = data_np[H*W*3:].reshape((7*9, 6)).copy()
         
         return frame, frame_data, depthmap, strain_x, strain_y
     
@@ -235,7 +336,7 @@ class GelSightMultiprocessed:
                 break
         if frame_num != self.last_frame_num + 1:
             print('GelSightMultiprocessed: missed frames!', frame_num, self.last_frame_num)
-        self.last_frame_num = self.last_frame_num
+        self.last_frame_num = frame_num
         return self.get_frame()
     
     def close(self):
@@ -244,6 +345,7 @@ class GelSightMultiprocessed:
 
     def __del__(self):
         self.close()
+
 
         
 
